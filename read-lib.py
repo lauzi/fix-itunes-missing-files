@@ -104,6 +104,14 @@ def get_itunes_library():
     return playlists[0]
 
 
+def relocate_track(lib, track_id, new_location):
+    matching_tracks = lib.tracks[appscript.its.database_ID == track_id].get()
+    if len(matching_tracks) != 1:
+        raise Exception('QQ')
+    track_meta = matching_tracks[0]
+    track_meta.location.set(mactypes.Alias(new_location))
+
+
 def main(args):
     if len(args) < 1:
         print('Call with library path!')
@@ -137,20 +145,20 @@ def main(args):
     num_success = 0
     failures = []
     for track, actual_location in renames:
-        matching_tracks = lib.tracks[appscript.its.database_ID == track.track_id].get()
-        if len(matching_tracks) != 1:
-            print('Failed to find track {} in iTunes!'.format(track))
+        try:
+            relocate_track(lib, track.track_id, actual_location)
+        except:
+            print('Failed to fix track {} in iTunes!'.format(track))
             failures.append(track)
             continue
-        track_meta = matching_tracks[0]
-        track_meta.location.set(mactypes.Alias(actual_location))
 
         print(track, ' -> ', actual_location)
         num_success += 1
 
     print('Succeeded: {}'.format(num_success))
-    print('GG: ')
-    pprint.pprint(failures)
+    if failures:
+        print('GG: ')
+        pprint.pprint(failures)
 
 
 if __name__ == '__main__':
