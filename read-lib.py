@@ -7,6 +7,10 @@ import pathlib
 import plistlib
 import functools
 
+# pip install appscript
+import mactypes
+import appscript
+
 # pip install editdistance
 import editdistance
 
@@ -50,6 +54,19 @@ class Track(object):
     def __lt__(self, other):
         return self._compare_value < other._compare_value
 
+    def __str__(self):
+        return '#{}: {} / {}'.format(self.track_id, self.album, self.name)
+
+    def __repr__(self):
+        return repr({
+            'Track ID': self.track_id,
+            'Album Artist': self.album_artist,
+            'Album': self.album,
+            'Track No.': self.track_number,
+            'Title': self.name,
+            'Location': self.location
+        })
+
     def find_location(self, directory_tree):
         if not self.location:
             return ''
@@ -57,6 +74,7 @@ class Track(object):
         if self.file_exists():
             return pathlib.Path(self.location)
 
+        # Can use difflib but it's slow and not really better
         return min(directory_tree, key=lambda p: editdistance.eval(self.location, p.as_posix()))
 
 
@@ -76,6 +94,16 @@ def get_directory_tree(library_root):
     return list(pathlib.Path(library_root / 'iTunes Media' / 'Music').glob('**/*.mp3'))
 
 
+def get_itunes_library():
+    app = appscript.app('iTunes')
+    playlists = app.library_playlists.get()
+
+    if len(playlists) != 1:
+        raise Exception('There are {} libraries!'.format(len(playlists)))
+
+    return playlists[0]
+
+
 def main(args):
     if len(args) < 1:
         print('Call with library path!')
@@ -90,10 +118,39 @@ def main(args):
     missing_tracks = filter_missing_tracks(tracks)
 
     missing_tracks.sort()
+    renames = []
     for track in missing_tracks:
         actual_path = track.find_location(directory_tree)
         if actual_path:
-            print('{} -> {}'.format(track.location, actual_path))
+            renames.append((track, actual_path))
+
+    if '-v' in args:
+        with open('old.txt', 'w') as old_f:
+            with open('new.txt', 'w') as new_f:
+                for track, actual_path in renames:
+                    old_f.write(track.location + '\n')
+                    new_f.write(actual_path.as_posix() + '\n')
+        print('Wrote old.txt, new.txt to use with vimdiff')
+        return
+
+    lib = get_itunes_library()
+    num_success = 0
+    failures = []
+    for track, actual_location in renames:
+        matching_tracks = lib.tracks[appscript.its.database_ID == track.track_id].get()
+        if len(matching_tracks) != 1:
+            print('Failed to find track {} in iTunes!'.format(track))
+            failures.append(track)
+            continue
+        track_meta = matching_tracks[0]
+        track_meta.location.set(mactypes.Alias(actual_location))
+
+        print(track, ' -> ', actual_location)
+        num_success += 1
+
+    print('Succeeded: {}'.format(num_success))
+    print('GG: ')
+    pprint.pprint(failures)
 
 
 if __name__ == '__main__':
